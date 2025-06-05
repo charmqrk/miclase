@@ -16,6 +16,12 @@ import scipy.stats as stats
 ##################
 ###
 
+def Dummies(dataframe, columna, variableIntercpt):
+    dataframe[columna].Categorical(variableIntercpt)
+    dataframe = dataframe.getDummies(columna,dropfirst = True)
+    return dataframe
+
+
 class AnalisisDescriptivo:
     def __init__(self, datos):
         self.datos = np.array(datos)
