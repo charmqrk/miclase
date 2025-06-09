@@ -1,48 +1,41 @@
 import numpy as np
 import pandas as pd
+import random
+from google.colab import drive
 import matplotlib.pyplot as plt
 import statsmodels.api as sm
-from sklearn.metrics import roc_curve, auc
-from google.colab import drive
+from scipy.stats import norm, chi2
+from collections import Counter
 from scipy import stats
 from statsmodels.stats.anova import anova_lm
-from scipy.stats import shapiro, norm, expon, t, uniform, chi2
-from collections import Counter
-import random
+from scipy.stats import shapiro, norm, expon, t, uniform
+from sklearn.metrics import roc_curve, auc
+from sklearn.model_selection import train_test_split
 import seaborn as sns
-import scipy.stats as stats
+import math
 
-###
-##################
-###
 
-def Dummies(dataframe, columna, variableIntercpt):
-    dataframe[columna].Categorical(variableIntercpt)
-    dataframe = dataframe.getDummies(columna,dropfirst = True)
-    return dataframe
-
+##
+################################################
+##
 
 class AnalisisDescriptivo:
     def __init__(self, datos):
         self.datos = np.array(datos)
 
     def calculo_de_media(self):
-        ## Completar
         media = np.mean(self.datos)
         return media
 
     def calculo_de_mediana(self):
-        ## Completar
         mediana = np.median(self.datos)
         return mediana
 
     def calculo_de_desvio_estandar(self):
-        ## Completar
         desvio = np.std(self.datos)
         return desvio
 
     def calculo_de_cuartiles(self):
-        ## Completar
         q1 = np.percentile(self.datos, 25)
         q2 = np.percentile(self.datos, 50)
         q3 = np.percentile(self.datos, 75)
@@ -50,10 +43,10 @@ class AnalisisDescriptivo:
 
     def resumen_numerico(self):
         res_num = {
-        'Media': self.calculo_de_media(self.datos),
-        'Mediana': self.calculo_de_mediana(self.datos),
-        'Desvio': self.calculo_de_desvio_estandar(self.datos),
-        'Cuartiles': self.calculo_de_cuartiles(self.datos),
+        'Media': self.calculo_de_media(),
+        'Mediana': self.calculo_de_mediana(),
+        'Desvio': self.calculo_de_desvio_estandar(),
+        'Cuartiles': self.calculo_de_cuartiles(),
         'Mínimo': min(self.datos),
         'Máximo': max(self.datos)
         }
@@ -111,9 +104,86 @@ class AnalisisDescriptivo:
 
         return estim
 
-###
-##################
-###
+##
+################################################
+##
+
+class Estimacion:
+    def __init__(self, datos):
+        """Clase para estimación de densidades."""
+        self.datos = np.array(datos)
+
+    def kernel_gaussiano(self, u):
+        return (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * u**2)
+
+    def kernel_uniforme(self, u):
+        return 1 if -0.5 <= u <= 0.5 else 0
+
+    def kernel_cuadratico(self, u):
+        return (3/4) * (1 - u**2) if -1 <= u <= 1 else 0
+
+    def densidad_nucleo(self, h, kernel, x):
+        """Estimación de densidad con kernel especificado."""
+        n = len(self.datos)
+        density = np.zeros_like(x)
+
+        for j, val in enumerate(x):
+            total = 0
+            for dato in self.datos:
+                u = (val - dato) / h
+                if kernel == 'uniforme':
+                    total += self.kernel_uniforme(u)
+                elif kernel == 'gaussiano':
+                    total += self.kernel_gaussiano(u)
+                elif kernel == 'cuadratico':
+                    total += self.kernel_cuadratico(u)
+
+            density[j] = total / (n * h)
+
+        return density
+
+    def evalua_histograma(self, h, x):
+        """Evalúa densidad del histograma en puntos x."""
+        bins = np.arange(min(self.datos) - h/2, max(self.datos) + h, h)
+        histograma = np.zeros(len(bins)-1)
+
+        for dato in self.datos:
+            for j in range(len(bins)-1):
+                if bins[j] <= dato < bins[j+1]:
+                    histograma[j] += 1
+                    break
+
+        freq_rel = histograma / len(self.datos)
+        densidad = freq_rel / h
+
+        estim = np.zeros(len(x))
+        for idx, val in enumerate(x):
+            for j in range(len(bins)-1):
+                if bins[j] <= val < bins[j+1]:
+                    estim[idx] = densidad[j]
+                    break
+
+        return estim
+
+    def miqqplot(self, datos = None):
+      if datos is not None:
+        self.datos = np.array(datos)
+
+      data = self.datos
+      data_ordenada = np.sort(data)
+      media = np.mean(data)
+      desv = np.std(data)
+      data_ord_s = [(i - media)/desv for i in data_ordenada]
+      cuantiles_teoricos = [norm.ppf((i+1)/(len(data)+1)) for i in range(len(data))]
+      plt.scatter(cuantiles_teoricos, data_ord_s)
+      plt.plot(cuantiles_teoricos, cuantiles_teoricos, color='red')
+      plt.xlabel('Cuantiles teóricos')
+      plt.ylabel('Cuantiles muestrales')
+      plt.show()
+
+##
+################################################
+##
 
 class GeneradoraDeDatos:
     def __init__(self, n):
@@ -153,9 +223,9 @@ class GeneradoraDeDatos:
     def pdf_chi2(self, x, gl):
         return chi2.pdf(x, gl)
 
-###
-##################
-###
+##
+################################################
+##
 
 class QQPlot:
     def __init__(self, datos):
@@ -242,305 +312,1029 @@ class QQPlot:
           plt.grid()
           plt.show()
 
-###
-##################
-###
+##
+################################################
+##
 
+def cargar_csv_desde_drive(ruta_drive, separador=',', mostrar_info=True):
+    """
+    Carga un archivo CSV desde Google Drive y lo convierte en un DataFrame.
 
+    Parámetros:
+    -----------
+    ruta_drive : str
+        Ruta del archivo en Google Drive (ej: '/content/drive/MyDrive/datos.csv')
+    separador : str, opcional
+        Separador de columnas en el CSV (por defecto ',')
+    mostrar_info : bool, opcional
+        Si True, muestra información básica del DataFrame (por defecto True)
 
-# Clase base
-class Regresion:
-    def __init__(self, datos, variable_objetivo, porcentaje_entrenamiento=0.8):
-        self.datos = datos.copy()
-        self.variable_objetivo = variable_objetivo
-        self.porcentaje_entrenamiento = porcentaje_entrenamiento
-        self.resultados = None
+    Retorna:
+    --------
+    tuple: (df, info_variables)
+        df: DataFrame de pandas con los datos
+        info_variables: Diccionario con información de las variables
+    """
 
-        self._preparar_datos()
+    # Montar Google Drive (si no está montado)
+    try:
+        drive.mount('/content/drive')
+    except:
+        pass  # Si ya está montado, continua
 
-    def _preparar_datos(self):
-        X = self.datos.drop(columns=[self.variable_objetivo])
-        y = self.datos[self.variable_objetivo]
+    # Cargar el archivo CSV
+    try:
+        df = pd.read_csv(ruta_drive, sep=separador)
+    except Exception as e:
+        raise ValueError(f"Error al cargar el archivo: {str(e)}")
 
-        n = int(len(self.datos) * self.porcentaje_entrenamiento)
-        self._X_train = sm.add_constant(X.iloc[:n], has_constant='add')
-        self._X_test = sm.add_constant(X.iloc[n:], has_constant='add')
-        self._y_train = y.iloc[:n]
-        self._y_test = y.iloc[n:]
+    # Crear diccionario de información de variables
+    info_variables = {
+        'n_variables': len(df.columns),
+        'n_observaciones': len(df),
+        'nombres_variables': list(df.columns),
+        'tipos_datos': df.dtypes.to_dict(),
+        'variables_numericas': df.select_dtypes(include=['number']).columns.tolist(),
+        'variables_categoricas': df.select_dtypes(include=['object', 'category']).columns.tolist(),
+        'variables_fecha': df.select_dtypes(include=['datetime']).columns.tolist()
+    }
 
-        self._columnas_entrenamiento = self._X_train.columns
+    # Mostrar información básica si se solicita
+    if mostrar_info:
+        display(df.head())
 
-    def entrenar_modelo(self):
-        raise NotImplementedError
+    return df, info_variables
 
-    def predecir(self, nuevos_datos):
-        raise NotImplementedError
+##
+################################################
+##
 
-    def evaluar_modelo(self):
-        raise NotImplementedError
+class prepararDataframe:
+    """
+    Clase para preparar y transformar DataFrames de pandas con operaciones comunes en preprocesamiento de datos.
 
+    Esta clase proporciona métodos para eliminar columnas, mapear valores y crear variables dummy.
+    También incluye un método para devolver una copia del DataFrame transformado.
 
-class RegresionLineal(Regresion):
-    def entrenar_modelo(self):
-        self.modelo = sm.OLS(self._y_train, self._X_train)
-        self.resultados = self.modelo.fit()
+    Notar que esta clase no modifica el DataFrame original.
 
-    def predecir(self, nuevos_datos):
-        if 'const' not in nuevos_datos.columns:
-            nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
-        nuevos_datos = nuevos_datos.reindex(columns=self._columnas_entrenamiento, fill_value=0)
-        return self.resultados.predict(nuevos_datos)
+    Atributos:
+        df (pd.DataFrame): DataFrame original proporcionado por el usuario
+        df_preparado (pd.DataFrame): Copia del DataFrame que se modifica con los métodos de la clase
 
-    def coef_correlacion(self):
-        correlaciones = {}
-        for col in self._X_train.columns:
-            if col != 'const':
-                correlaciones[col] = np.corrcoef(self._X_train[col], self._y_train)[0, 1]
-        return correlaciones
+    Métodos:
+        eliminar_variables: Elimina columnas especificadas del DataFrame
+        mappear_valores: Transforma valores en una columna según un diccionario de mapeo
+        preparar_dummies: Crea variables dummy con control sobre la categoría de referencia
+    """
 
-    def graficar_dispersión(self):
-        for col in self._X_train.columns:
-            if col != 'const':
-                plt.figure()
-                sns.scatterplot(x=self._X_train[col], y=self._y_train)
-                pred = self.resultados.predict(self._X_train)
-                plt.plot(self._X_train[col], pred, color='red')
-                plt.title(f'{col} vs {self.variable_objetivo}')
-                plt.xlabel(col)
-                plt.ylabel(self.variable_objetivo)
-                plt.show()
+    def __init__(self, df):
+        """
+        Inicializa la clase con el DataFrame a transformar.
 
-    def analisis_residuos(self):
-        residuos = self._y_test - self.predecir(self._X_test)
-        predichos = self.predecir(self._X_test)
+        Args:
+            df (pd.DataFrame): DataFrame de pandas que se desea preparar/transformar
+        """
+        self.df = df
+        self.df_preparado = df.copy()
 
-        plt.figure()
-        sns.residplot(x=predichos, y=residuos, lowess=True, line_kws={'color': 'red'})
-        plt.xlabel('Valores Predichos')
-        plt.ylabel('Residuos')
-        plt.title('Residuos vs Predichos')
-        plt.show()
+    def eliminar_variables(self, variables_a_eliminar):
+        """
+        Elimina columnas especificadas del DataFrame.
 
-        plt.figure()
-        stats.probplot(residuos, dist="norm", plot=plt)
-        plt.title("QQ Plot")
-        plt.show()
+        Args:
+            variables_a_eliminar (str or list): Nombre(s) de la(s) columna(s) a eliminar
 
-    def obtener_estadisticas(self):
-        tabla = self.resultados.summary2().tables[1]
-        return tabla[['Coef.', 'Std.Err.', 't', 'P>|t|']]
+        Returns:
+            None: Modifica el DataFrame interno directamente
 
-    def intervalos_confianza_prediccion(self):
-        pred = self.resultados.get_prediction(self._X_test)
-        frame = pred.summary_frame(alpha=0.05)
-        return frame[['mean_ci_lower', 'mean_ci_upper', 'obs_ci_lower', 'obs_ci_upper']]
+        Ejemplo:
+            >>> preparador.eliminar_variables('columna_no_necesaria')
+            >>> preparador.eliminar_variables(['col1', 'col2', 'col3'])
+        """
+        self.df_preparado = self.df_preparado.drop(columns=variables_a_eliminar)
 
-    def evaluar_modelo(self):
-        y_pred = self.predecir(self._X_test)
-        residuales = self._y_test - y_pred
-        n = len(self._X_test)
-        p = len(self._X_test.columns) - 1
-        r2 = self.resultados.rsquared
-        r2_ajustado = 1 - (1 - r2) * (n - 1) / (n - p - 1)
-        rmse = np.sqrt(np.mean(residuales ** 2))
-        return {'R2': r2, 'R2_ajustado': r2_ajustado, 'RMSE': rmse}
+    def mappear_valores(self, diccionario_mapeo, columna_a_mapear):
+        """
+        Transforma los valores de una columna según un diccionario de mapeo.
 
+        Args:
+            diccionario_mapeo (dict): Diccionario con mapeo {valor_original: valor_nuevo}
+            columna_a_mapear (str): Nombre de la columna a transformar
 
-class RegresionLogistica(Regresion):
-    def entrenar_modelo(self):
-        self.modelo = sm.Logit(self._y_train, self._X_train)
-        self.resultados = self.modelo.fit()
+        Returns:
+            None: Modifica el DataFrame interno directamente
 
-    def predecir(self, nuevos_datos, umbral=0.5):
-        if 'const' not in nuevos_datos.columns:
-            nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
-        nuevos_datos = nuevos_datos.reindex(columns=self._columnas_entrenamiento, fill_value=0)
-        proba = self.resultados.predict(nuevos_datos)
-        return (proba >= umbral).astype(int)
+        Ejemplo:
+            >>> mapeo = {'Sí': 1, 'No': 0}
+            >>> preparador.mappear_valores(mapeo, 'columna_respuesta')
+        """
+        self.df_preparado[columna_a_mapear] = self.df_preparado[columna_a_mapear].map(diccionario_mapeo)
 
-    def obtener_estadisticas(self):
-        tabla = self.resultados.summary2().tables[1]
-        return tabla[['Coef.', 'Std.Err.', 'z', 'P>|z|']]
+    def preparar_dummies(self, variable_categorica, valor_objetivo=None, prefix=None, prefix_sep='_', mantener_original=False):
+        """
+        Crea variables dummy para una columna categórica con control avanzado sobre la categoría de referencia.
 
-    def evaluar_modelo(self, umbral=0.5):
-        y_pred = self.predecir(self._X_test, umbral)
-        y_true = self._y_test
-        tp = np.sum((y_pred == 1) & (y_true == 1))
-        tn = np.sum((y_pred == 0) & (y_true == 0))
-        fp = np.sum((y_pred == 1) & (y_true == 0))
-        fn = np.sum((y_pred == 0) & (y_true == 1))
+        Args:
+            variable_categorica (str): Nombre de la columna categórica a convertir
+            valor_objetivo (str, optional): Valor categórico que será la categoría de referencia (la que se droppea).
+                                          Si es None, se usa el primer valor alfabéticamente.
+            prefix (str, optional): Prefijo para los nombres de las nuevas columnas.
+                                   Si es None, usa el nombre de la columna original.
+            prefix_sep (str, optional): Separador entre el prefijo y el valor categórico. Default='_'
+            mantener_original (bool, optional): Si True, mantiene la columna original además de las dummies. Default=False
 
-        sensibilidad = tp / (tp + fn) if (tp + fn) else 0
-        especificidad = tn / (tn + fp) if (tn + fp) else 0
-        error_total = (fp + fn) / len(y_true)
+        Returns:
+            None: Modifica el DataFrame interno directamente
 
-        matriz = pd.DataFrame(
-            [[tn, fp], [fn, tp]],
-            index=['Real 0', 'Real 1'],
-            columns=['Predicho 0', 'Predicho 1']
+        Raises:
+            ValueError: Si el valor_objetivo no existe en la columna especificada
+
+        Ejemplo:
+            >>> # Crea dummies para 'Nivel_Educativo' con 'Secundaria' como referencia
+            >>> preparador.preparar_dummies('Nivel_Educativo', valor_objetivo='Secundaria')
+
+            >>> # Crea dummies con prefijo personalizado
+            >>> preparador.preparar_dummies('Región', prefix='reg', prefix_sep='-')
+        """
+        # Configuración de prefijos
+        if prefix is None:
+            prefix = variable_categorica
+
+        # Verificar que la columna existe
+        if variable_categorica not in self.df_preparado.columns:
+            raise ValueError(f"La columna '{variable_categorica}' no existe en el DataFrame")
+
+        # Verificar que el valor_objetivo existe si fue especificado
+        if valor_objetivo is not None:
+            valores_unicos = self.df_preparado[variable_categorica].unique()
+            if valor_objetivo not in valores_unicos:
+                raise ValueError(f"El valor '{valor_objetivo}' no existe en la columna '{variable_categorica}'. Valores disponibles: {list(valores_unicos)}")
+
+        # Crear dummies temporales sin droppear ninguna categoría
+        dummies = pd.get_dummies(
+            self.df_preparado[variable_categorica],
+            prefix=prefix,
+            prefix_sep=prefix_sep,
+            dtype=int  # Usar 0/1 en lugar de True/False
         )
 
+        # Eliminar la columna del valor objetivo si fue especificado
+        if valor_objetivo is not None:
+            columna_a_eliminar = f"{prefix}{prefix_sep}{valor_objetivo}"
+            if columna_a_eliminar in dummies.columns:
+                dummies = dummies.drop(columns=[columna_a_eliminar])
+
+        # Eliminar la columna original si no se solicita mantenerla
+        if not mantener_original:
+            self.df_preparado = self.df_preparado.drop(columns=[variable_categorica])
+
+        # Unir las dummies al DataFrame
+        self.df_preparado = pd.concat([self.df_preparado, dummies], axis=1)
+
+    def devolver_df(self):
+        """
+        Devuelve el DataFrame preparado.
+
+        Returns:
+            pd.DataFrame: Copia del DataFrame modificado con los métodos de la clase.
+        """
+        return self.df_preparado
+
+##
+################################################
+##
+
+class Regresion:
+  def __init__(self, df, variable_respuesta):
+      self.df = df.copy()
+      self.variable_respuesta = variable_respuesta
+      self.variables_predictoras = [col for col in self.df.columns if col != variable_respuesta]
+      self.X = df[self.variables_predictoras]
+      self.y = df[self.variable_respuesta]
+      self.df_train = None
+      self.df_test = None
+      self.X_test = None
+      self.y_test = None
+      self.X_train = None
+      self.y_train = None
+      self._modelo = None
+      self._modelo_train = None
+      self.resultados = None
+      self.resultados_train = None
+
+  def dividir_datos_train_test(self, test_size=0.2, random_state=10, tipo = "ttt", indice_div = None):
+    """Divide los datos en conjuntos de entrenamiento y prueba."""
+    if tipo == "ttt":
+        self.df_train, self.df_test = train_test_split(self.df, test_size=test_size, random_state=random_state)
+        self.y_test = self.df_test[self.variable_respuesta]
+        self.X_test = self.df_test.drop(columns=[self.variable_respuesta])
+        self.X_train = self.df_train.drop(columns=[self.variable_respuesta])
+        self.y_train = self.df_train[self.variable_respuesta]
+    elif tipo == "random":
+        random.seed(random_state)
+        indices = random.sample(range(len(self.df)), int(len(self.df) * (1 - test_size)))
+        self.df_train = self.df.iloc[indices]
+        self.df_test = self.df.drop(indices)
+        self.y_test = self.df_test[self.variable_respuesta]
+        self.X_test = self.df_test.drop(columns=[self.variable_respuesta])
+        self.X_train = self.df_train.drop(columns=[self.variable_respuesta])
+        self.y_train = self.df_train[self.variable_respuesta]
+    else:
+        if indice_div is not None:
+            self.df_train = self.df.iloc[:indice_div]
+            self.df_test = self.df.iloc[indice_div:]
+            self.y_test = self.df_test[self.variable_respuesta]
+            self.X_test = self.df_test.drop(columns=[self.variable_respuesta])
+            self.X_train = self.df_train.drop(columns=[self.variable_respuesta])
+            self.y_train = self.df_train[self.variable_respuesta]
+
+
+  def agregar_interaccion(self, var1, var2, prefijo=None):
+    """Agrega un término de interacción entre dos variables."""
+
+    if var1 not in self.variables_predictoras or var2 not in self.variables_predictoras:
+        raise ValueError("Ambas variables deben existir en el DataFrame")
+
+    nombre_interaccion = f"{prefijo}_" if prefijo else ""
+    nombre_interaccion += f"{var1}_x_{var2}"
+
+    if nombre_interaccion not in self.variables_predictoras:
+        self.df[nombre_interaccion] = self.df[var1] * self.df[var2]
+        self.variables_predictoras.append(nombre_interaccion)
+
+##
+################################################
+##
+
+class RegresionLineal(Regresion):
+    def __init__(self, df, variable_respuesta):
+        super().__init__(df, variable_respuesta)
+        self.resultados = None
+
+    def _calcular_coeficientes_simple(self, x, y):
+        """Calcula los coeficientes de la recta de regresión."""
+        media_x = np.mean(x)
+        media_y = np.mean(y)
+        b1 = np.sum((x - media_x) * (y - media_y)) / np.sum((x - media_x) ** 2)
+        b0 = media_y - b1 * media_x
+        return b0, b1
+
+    def ajustar_modelo(self, train = False):
+        """Ajusta el modelo de regresión lineal."""
+        if train:
+            if self.X_train is None:
+                raise ValueError("No hay datos de entrenamiento. Llama a dividir_datos_train_test() primero.")
+            else:
+                # Usar datos de entrenamiento
+                X_train = sm.add_constant(self.X_train)
+                self._modelo_train = sm.OLS(self.y_train, X_train)
+                self.resultados_train = self._modelo_train.fit()
+        else:
+            # Si no hay partición, usar todos los datos
+            X = sm.add_constant(self.X)
+            self._modelo = sm.OLS(self.y, X)
+            self.resultados = self._modelo.fit()
+            return self.resultados
+
+    def resumen_modelo(self):
+        """Muestra un resumen del modelo ajustado."""
+        if self.resultados is None:
+            self.ajustar_modelo()
+        return self.resultados.summary()
+
+    def resumen_modelo_train(self):
+        """Muestra un resumen del modelo ajustado entrenado."""
+        if self.resultados_train is None:
+            self.ajustar_modelo(True)
+        return self.resultados_train.summary()
+
+    def graficar_dispersion(self):
+        """Grafica la dispersión de puntos para cada variable predictora."""
+
+        num_vars = len(self.variables_predictoras)
+        cols = min(3, num_vars)
+        rows = (num_vars + cols - 1) // cols
+
+        fig, axs = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+        if rows == 1 and cols == 1:
+            axs = np.array([[axs]])
+        elif rows == 1 or cols == 1:
+            axs = axs.reshape(-1, 1) if rows > 1 else axs.reshape(1, -1)
+
+        for i, var in enumerate(self.variables_predictoras):
+            row_idx = i // cols
+            col_idx = i % cols
+
+            # Datos para graficar
+            x_data = self.X[var]
+            y_data = self.y
+
+            axs[row_idx, col_idx].scatter(x_data, y_data, alpha=0.5)
+            axs[row_idx, col_idx].set_title(f'{self.variable_respuesta} vs {var}')
+            axs[row_idx, col_idx].set_xlabel(var)
+            if col_idx == 0:
+                axs[row_idx, col_idx].set_ylabel(self.variable_respuesta)
+
+        # Ocultar ejes vacíos si hay más subplots que variables
+        for i in range(num_vars, rows*cols):
+            row_idx = i // cols
+            col_idx = i % cols
+            axs[row_idx, col_idx].axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+    def graficar_dispersion_train(self):
+        """Grafica la dispersión de puntos para cada variable predictora entrenada."""
+
+        num_vars = len(self.variables_predictoras)
+        cols = min(3, num_vars)
+        rows = (num_vars + cols - 1) // cols
+
+        fig, axs = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+        if rows == 1 and cols == 1:
+            axs = np.array([[axs]])
+        elif rows == 1 or cols == 1:
+            axs = axs.reshape(-1, 1) if rows > 1 else axs.reshape(1, -1)
+
+        for i, var in enumerate(self.variables_predictoras):
+            row_idx = i // cols
+            col_idx = i % cols
+
+            # Datos para graficar
+            x_data = self.X_train[var]
+            y_data = self.y_train
+
+            axs[row_idx, col_idx].scatter(x_data, y_data, alpha=0.5)
+            axs[row_idx, col_idx].set_title(f'{self.variable_respuesta} vs {var}')
+            axs[row_idx, col_idx].set_xlabel(var)
+            if col_idx == 0:
+                axs[row_idx, col_idx].set_ylabel(self.variable_respuesta)
+
+        # Ocultar ejes vacíos si hay más subplots que variables
+        for i in range(num_vars, rows*cols):
+            row_idx = i // cols
+            col_idx = i % cols
+            axs[row_idx, col_idx].axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+    def graficar_recta_regresion(self, variable=None):
+        """
+        Grafica la recta de regresión para una variable predictora específica.
+
+        Args:
+            variable (str): Nombre de la variable predictora a graficar. Si None, usa la primera.
+        """
+        if self.resultados is None:
+            self.ajustar_modelo()
+
+        if variable is None:
+            variable = self.variables_predictoras[0]
+        elif variable not in self.variables_predictoras:
+            raise ValueError(f"La variable {variable} no es una predictora del modelo")
+
+        # Datos para graficar
+        x_data = self.X[variable]
+        y_data = self.y
+
+        # Valores para la recta de regresión
+        x_min, x_max = x_data.min(), x_data.max()
+        x_recta = np.linspace(x_min, x_max, 100)
+
+        # Preparamos datos para predecir (solo esta variable)
+        datos_recta = pd.DataFrame({variable: x_recta})
+        for var in self.variables_predictoras:
+            if var != variable:
+                datos_recta[var] = x_data.mean()  # Valores medios para otras variables
+
+        # Predecir valores
+        y_recta = self.predecir(datos_recta)['prediccion']
+
+        # Graficar
+        plt.figure(figsize=(8, 6))
+        plt.scatter(x_data, y_data, alpha=0.5, label='Datos observados')
+        plt.plot(x_recta, y_recta, color='red', label='Recta de regresión')
+        plt.xlabel(variable)
+        plt.ylabel(self.variable_respuesta)
+        plt.title(f'Regresión lineal: {self.variable_respuesta} ~ {variable}')
+        plt.legend()
+        plt.grid(True)
+        plt.show()
+
+    def graficos_regresion_parcial(self):
+        """
+        Genera gráficos de regresión parcial para cada variable predictora.
+        """
+        if self.resultados is None:
+            self.ajustar_modelo()
+
+        num_vars = len(self.variable_respuesta)
+        cols = min(3, num_vars)
+        rows = (num_vars + cols - 1) // cols
+
+        fig, axs = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+        if rows == 1 and cols == 1:
+            axs = np.array([[axs]])
+        elif rows == 1 or cols == 1:
+            axs = axs.reshape(-1, 1) if rows > 1 else axs.reshape(1, -1)
+
+        for i, var in enumerate(self.variable_respuesta):
+            row_idx = i // cols
+            col_idx = i % cols
+
+            # Datos para graficar
+            x_data = self.X[var]
+            residuos = self.resultados.resid
+
+            # Gráfico de regresión parcial
+            axs[row_idx, col_idx].scatter(x_data, residuos, alpha=0.5)
+            axs[row_idx, col_idx].axhline(y=0, color='r', linestyle='--')
+            axs[row_idx, col_idx].set_title(f'Residuos vs {var}')
+            axs[row_idx, col_idx].set_xlabel(var)
+            if col_idx == 0:
+                axs[row_idx, col_idx].set_ylabel('Residuos')
+
+        # Ocultar ejes vacíos
+        for i in range(num_vars, rows*cols):
+            row_idx = i // cols
+            col_idx = i % cols
+            axs[row_idx, col_idx].axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+    def graficos_regresion_parcialTrain(self):
+        """
+        Genera gráficos de regresión parcial para cada variable predictora entrenada.
+        """
+        if self.resultados_train is None:
+            self.ajustar_modelo(True)
+
+        num_vars = len(self.variable_respuesta)
+        cols = min(3, num_vars)
+        rows = (num_vars + cols - 1) // cols
+
+        fig, axs = plt.subplots(rows, cols, figsize=(5*cols, 4*rows))
+        if rows == 1 and cols == 1:
+            axs = np.array([[axs]])
+        elif rows == 1 or cols == 1:
+            axs = axs.reshape(-1, 1) if rows > 1 else axs.reshape(1, -1)
+
+        for i, var in enumerate(self.variable_respuesta):
+            row_idx = i // cols
+            col_idx = i % cols
+
+            # Datos para graficar
+            x_data = self.X_train[var]
+            residuos = self.resultados_train.resid
+
+            # Gráfico de regresión parcial
+            axs[row_idx, col_idx].scatter(x_data, residuos, alpha=0.5)
+            axs[row_idx, col_idx].axhline(y=0, color='r', linestyle='--')
+            axs[row_idx, col_idx].set_title(f'Residuos vs {var}')
+            axs[row_idx, col_idx].set_xlabel(var)
+            if col_idx == 0:
+                axs[row_idx, col_idx].set_ylabel('Residuos')
+
+        # Ocultar ejes vacíos
+        for i in range(num_vars, rows*cols):
+            row_idx = i // cols
+            col_idx = i % cols
+            axs[row_idx, col_idx].axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+    def coeficiente_correlacion(self, train=False):
+        """
+        Calcula los coeficientes de correlación entre cada variable predictora y la respuesta.
+
+        Returns:
+            pd.Series: Coeficientes de correlación para cada variable predictora
+        """
+
+        # Usamos datos de entrenamiento si están disponibles, sino todos los datos
+        datos = self.df_train if train else self.df
+
+        # Calculamos correlación para cada variable predictora
+        correlaciones = datos[self.variables_predictoras].corrwith(datos[self.variable_respuesta])
+
+        return correlaciones
+
+    def analizar_residuos(self):
+        """Realiza el análisis de residuos del modelo."""
+        if self.resultados is None:
+            self.ajustar_modelo()
+
+        residuos = self.resultados.resid
+        predichos = self.resultados.fittedvalues
+
+        plt.figure(figsize=(15, 5))
+
+        # Gráfico de residuos vs predichos
+        plt.subplot(1, 2, 1)
+        plt.scatter(predichos, residuos)
+        plt.axhline(y=0, color='r', linestyle='--')
+        plt.xlabel('Valores predichos')
+        plt.ylabel('Residuos')
+        plt.title('Residuos vs. Valores predichos')
+
+        # QQ plot
+        plt.subplot(1, 2, 2)
+        qq = QQPlot(residuos)
+        qq.graficar_qq_normal()
+
+        plt.tight_layout()
+        plt.show()
+
+    def predecir(self, nuevos_datos, intervalo_confianza=False, confianza=0.95):
+        """Realiza predicciones con el modelo ajustado."""
+        if self.resultados is None:
+            self.ajustar_modelo()
+
+        # Validar tipo de datos de entrada
+        if isinstance(nuevos_datos, dict):
+            nuevos_datos = pd.DataFrame([nuevos_datos])
+        elif not isinstance(nuevos_datos, pd.DataFrame):
+            raise TypeError("nuevos_datos debe ser un DataFrame o diccionario")
+
+        # Validar columnas
+        faltantes = set(self.variables_predictoras) - set(nuevos_datos.columns)
+        if faltantes:
+            raise ValueError(f"Faltan variables predictoras: {faltantes}")
+
+        # Añadir constante si el modelo la incluye
+        if self.resultados.model.k_constant:
+            nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
+
+        # Realizar predicción
+        try:
+            pred = self.resultados.get_prediction(nuevos_datos)
+            pred_df = pd.DataFrame({'prediccion': pred.predicted_mean})
+
+            if intervalo_confianza:
+                ic = pred.conf_int(alpha=1-confianza)
+                pred_df['ic_inf'] = ic[:, 0]
+                pred_df['ic_sup'] = ic[:, 1]
+
+            return pred_df
+        except Exception as e:
+            raise ValueError(f"Error en predicción: {str(e)}")
+
+    def predecirTrain(self, nuevos_datos, intervalo_confianza=False, confianza=0.95):
+        """Realiza predicciones con el modelo ajustado entrenado."""
+        if self.resultados_train is None:
+            self.ajustar_modelo(True)
+
+        # Validar tipo de datos de entrada
+        if isinstance(nuevos_datos, dict):
+            nuevos_datos = pd.DataFrame([nuevos_datos])
+        elif not isinstance(nuevos_datos, pd.DataFrame):
+            raise TypeError("nuevos_datos debe ser un DataFrame o diccionario")
+
+        # Validar columnas
+        faltantes = set(self.variables_predictoras) - set(nuevos_datos.columns)
+        if faltantes:
+            raise ValueError(f"Faltan variables predictoras: {faltantes}")
+
+        # Añadir constante si el modelo la incluye
+        if self.resultados_train.model.k_constant:
+            nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
+
+        # Realizar predicción
+        try:
+            pred = self.resultados_train.get_prediction(nuevos_datos)
+            pred_df = pd.DataFrame({'prediccion': pred.predicted_mean})
+
+            if intervalo_confianza:
+                ic = pred.conf_int(alpha=1-confianza)
+                pred_df['ic_inf'] = ic[:, 0]
+                pred_df['ic_sup'] = ic[:, 1]
+
+            return pred_df
+        except Exception as e:
+            raise ValueError(f"Error en predicción: {str(e)}")
+
+    def intervalo_confianza(self, variable, confianza=0.95):
+        """Calcula intervalo de confianza para un coeficiente."""
+        if self.resultados is None:
+            self.ajustar_modelo()
+
+        if variable == 'intercepto':
+            idx = 0
+        elif variable in self.variables_predictoras:
+            idx = self.variables_predictoras.index(variable) + 1
+        else:
+            raise ValueError(f"Variable {variable} no encontrada en predictores")
+
+        alpha = 1 - confianza
+        t_val = stats.t.ppf(1 - alpha/2, self.resultados.df_resid)
+        coef = self.resultados.params[idx]
+        margen_error = t_val * self.resultados.bse[idx]
+
+        ic_inf = coef - margen_error
+        ic_sup = coef + margen_error
+
+        print(f"Intervalo de confianza del {confianza*100:.0f}% para {variable}: ({ic_inf:.4f}, {ic_sup:.4f})")
+        return (ic_inf, ic_sup)
+
+    def test_hipotesis(self, variable=None, valor_h0=0, alpha=0.05):
+        """Realiza test de hipótesis para coeficientes."""
+        if self.resultados is None:
+            self.ajustar_modelo()
+
+        if variable is None:
+            # Test para todos los coeficientes
+            print(self.resultados.summary())
+            return
+
+        if variable == 'intercepto':
+            idx = 0
+        elif variable in self.variables_predictoras:
+            idx = self.variables_predictoras.index(variable) + 1
+        else:
+            raise ValueError(f"Variable {variable} no encontrada en predictores")
+
+        coef = self.resultados.params[idx]
+        se = self.resultados.bse[idx]
+        t_obs = (coef - valor_h0) / se
+        p_valor = 2 * (1 - stats.t.cdf(abs(t_obs), self.resultados.df_resid))
+
+        print(f"Test para H0: {variable} = {valor_h0} vs H1: {variable} ≠ {valor_h0}")
+        print(f"Estadístico t observado: {t_obs:.4f}")
+        print(f"p-valor: {p_valor:.4f}")
+
+        if p_valor < alpha:
+            print(f"Conclusión: Rechazamos H0 (α={alpha})")
+        else:
+            print(f"Conclusión: No rechazamos H0 (α={alpha})")
+
+    def metricas_modelo(self):
+        """Calcula métricas clave del modelo."""
+        if self.resultados is None:
+            self.ajustar_modelo()
+
         return {
-            'matriz_confusion': matriz,
-            'error_total': error_total,
-            'sensibilidad': sensibilidad,
-            'especificidad': especificidad
+            'R_cuadrado': self.resultados.rsquared,
+            'R_cuadrado_ajustado': self.resultados.rsquared_adj,
+            'AIC': self.resultados.aic,
+            'BIC': self.resultados.bic
         }
+##
+################################################
+##
+
+class RegresionLogistica(Regresion):
+    def __init__(self, df, variable_respuesta, random_state=None):
+        super().__init__(df, variable_respuesta)
+        self._random_state = random_state
+        self._umbral = 0.5
+        self.resultados = None
+        self.resultados_train = None
+
+    def umbral(self):
+        """Getter para el umbral de clasificación."""
+        return self._umbral
+
+    def umbral(self, value):
+        """Setter para el umbral de clasificación con validación."""
+        if not 0 <= value <= 1:
+            raise ValueError("El umbral debe estar entre 0 y 1")
+        self._umbral = value
+
+    def ajustar_modelo(self, train = False):
+        """Ajusta el modelo de regresión logística."""
+        if train:
+            # Changed _df_train to df_train
+            if self.df_train is None:
+                raise ValueError("No hay datos de entrenamiento. Llama a dividir_datos_train_test() primero.")
+            else:
+                # Usar datos de entrenamiento
+                X_train = sm.add_constant(self.X_train)
+                self._modelo_train = sm.Logit(self.y_train, X_train)
+                self.resultados_train = self._modelo_train.fit()
+                return self.resultados_train
+        else:
+            # Si no hay partición, usar todos los datos
+            X = sm.add_constant(self.X)
+            self._modelo = sm.Logit(self.y, X)
+            self.resultados = self._modelo.fit()
+            return self.resultados
+
+    def resumen_modelo(self):
+        """Muestra un resumen del modelo ajustado."""
+        if self.resultados is None:
+            if self._modelo is None:
+                self.ajustar_modelo()
+        return self.resultados.summary()
+
+    def resumen_modelo_train(self):
+        """Muestra un resumen del modelo ajustado entrenado."""
+        if self.resultados_train is None:
+            if self._modelo_train is None:
+                self.ajustar_modelo(True)
+        return self.resultados_train.summary()
+
+
+    def predecir(self, nuevos_datos, probabilidades=False):
+        """Realiza predicciones con el modelo ajustado."""
+        if self.resultados is None:
+            if self._modelo is None:
+                self.ajustar_modelo()
+
+        # Preparar nuevos datos
+        if isinstance(nuevos_datos, dict):
+            nuevos_datos = pd.DataFrame([nuevos_datos])
+
+        # Asegurar que tenemos todas las columnas necesarias
+        nuevos_datos = nuevos_datos.copy()
+        for var in self.variables_predictoras:
+            if var not in nuevos_datos.columns:
+                 nuevos_datos[var] = 0
+
+        if self._modelo is not None:
+             model_cols = list(self._modelo.exog_names)
+             if 'const' in model_cols:
+                 model_cols.remove('const')
+             nuevos_datos = nuevos_datos[self.variables_predictoras]
+             nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
+             nuevos_datos = nuevos_datos[self._modelo.exog_names]
+        else:
+             nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
+
+
+        proba = self.resultados.predict(nuevos_datos)
+
+        if probabilidades:
+            return proba
+        else:
+            return (proba > self._umbral).astype(int).rename('prediccion').to_frame()
+
+
+    def predecirTrain(self, nuevos_datos, probabilidades=False):
+        """Realiza predicciones con el modelo ajustado entrenado."""
+        if self.resultados_train is None:
+            # Check if model has been trained on training data
+            if self._modelo_train is None:
+                self.ajustar_modelo(True)
+
+        # Preparar nuevos datos
+        if isinstance(nuevos_datos, dict):
+            nuevos_datos = pd.DataFrame([nuevos_datos])
+
+        nuevos_datos = nuevos_datos.copy()
+
+        for var in self.X_train.columns:
+            if var not in nuevos_datos.columns:
+                 nuevos_datos[var] = 0
+
+        nuevos_datos = nuevos_datos[self.X_train.columns]
+
+        nuevos_datos = sm.add_constant(nuevos_datos, has_constant='add')
+
+        if self._modelo_train is not None:
+             nuevos_datos = nuevos_datos[self._modelo_train.exog_names]
+
+
+        # Calcular probabilidades
+        proba = self.resultados_train.predict(nuevos_datos)
+
+        if probabilidades:
+            return proba
+        else:
+            # Ensure prediction output matches input index
+            return (proba > self._umbral).astype(int).rename('prediccion').to_frame()
+
+    def evaluar_modelo(self):
+        """Evalúa el modelo en los datos de prueba."""
+        if self.df_test is None:
+            raise ValueError("No hay datos de prueba. Llama a dividir_datos_train_test() primero.")
+
+        if self.resultados_train is None:
+            self.ajustar_modelo(True)
+
+
+        if not hasattr(self, 'resultados_train') or self.resultados_train is None:
+             raise ValueError("Debes ajustar el modelo primero con train=True")
+
+        missing_cols_in_test = set(self.X_train.columns) - set(self.X_test.columns)
+        for c in missing_cols_in_test:
+             self.X_test[c] = 0 # Add missing columns with default value (e.g., 0) - careful with interpretation
+
+        self.X_test = self.X_test[self.X_train.columns]
+
+
+        y_pred = self.predecirTrain(self.X_test)['prediccion'] # Get the 'prediccion' Series
+
+        # Matriz de confusión
+        vp = np.sum((y_pred == 1) & (self.y_test == 1))
+        fp = np.sum((y_pred == 1) & (self.y_test == 0))
+        fn = np.sum((y_pred == 0) & (self.y_test == 1))
+        vn = np.sum((y_pred == 0) & (self.y_test == 0))
+
+        # Métricas
+        total = vp + fp + fn + vn
+        sensibilidad = vp / (vp + fn) if (vp + fn) > 0 else 0
+        especificidad = vn / (vn + fp) if (vn + fp) > 0 else 0
+        exactitud = (vp + vn) / total if total > 0 else 0
+        error = 1 - exactitud
+
+        return {
+            'matriz_confusion': pd.DataFrame({
+                'Real=1': [vp, fn,  vp + fn],
+                'Real=0': [fp, vn, fp + vn],
+                'CuantPred': [vp + fp, fn + vn, total]
+            }, index=['Pred=1', 'Pred=0', 'CuantReal']),
+            'metricas': {
+                'sensibilidad': sensibilidad,
+                'especificidad': especificidad,
+                'exactitud': exactitud,
+                'error_clasificacion': error
+            }
+        }
+
 
     def curva_roc(self):
-        from sklearn.metrics import roc_curve, roc_auc_score
-        proba = self.resultados.predict(self._X_test)
-        fpr, tpr, _ = roc_curve(self._y_test, proba)
-        auc = roc_auc_score(self._y_test, proba)
-
-        plt.figure()
-        plt.plot(fpr, tpr, label=f"AUC = {auc:.2f}")
-        plt.plot([0, 1], [0, 1], linestyle='--', color='gray')
-        plt.xlabel('Tasa de falsos positivos')
-        plt.ylabel('Tasa de verdaderos positivos')
-        plt.title('Curva ROC')
-        plt.legend()
-        plt.show()
-
-        return auc
-
-class AnalizadorCategoricos:
-    def __init__(self, datos, categorias=None, esperados=None):
         """
-        Inicializa el analizador con datos categóricos.
-
-        Args:
-            datos: Lista/array de observaciones categóricas
-            categorias: Lista de categorías únicas (si None, se infieren)
-            esperados: Valores esperados para bondad de ajuste (opcional)
-        """
-        self.datos = np.array(datos)
-        self.categorias = categorias if categorias is not None else np.unique(self.datos)
-        self.conteos = Counter(self.datos)
-        self.n = len(self.datos)
-        self.esperados = esperados
-
-    def resumen_conteos(self):
-        """Devuelve un DataFrame con conteos observados y proporciones."""
-        df = pd.DataFrame({
-            'Categoria': self.categorias,
-            'Conteo': [self.conteos.get(c, 0) for c in self.categorias],
-            'Proporcion': [self.conteos.get(c, 0)/self.n for c in self.categorias]
-        })
-        return df
-
-    def probar_proporcion(self, categoria, valor_esperado=None, alpha=0.05, metodo='normal'):
-        """
-        Prueba si la proporción de una categoría difiere de un valor esperado.
-
-        Args:
-            categoria: Categoría a analizar
-            valor_esperado: Valor esperado bajo H0 (si None, usa 1/k)
-            alpha: Nivel de significancia
-            metodo: 'normal' para aproximación normal, 'bootstrap' para bootstrap
+        Calcula los datos para la curva ROC y el Área bajo la Curva (AUC).
 
         Returns:
-            Diccionario con resultados de la prueba
+            dict: 'fpr', 'tpr' (listas para graficar) y 'auc' (valor numérico)
         """
-        if valor_esperado is None:
-            valor_esperado = 1/len(self.categorias)
+        if self.df_test is None: # Changed _df_test to df_test
+            raise ValueError("Se requieren datos de prueba. Use dividir_datos_train_test() primero.")
 
-        p_obs = self.conteos.get(categoria, 0)/self.n
-        resultados = {
-            'categoria': categoria,
-            'p_observada': p_obs,
-            'p_esperada': valor_esperado,
-            'alpha': alpha
-        }
+        if self.resultados_train is None:
+            self.ajustar_modelo(train=True)
 
-        if metodo == 'normal':
-            # Aproximación normal
-            se = np.sqrt(valor_esperado*(1-valor_esperado)/self.n)
-            z = (p_obs - valor_esperado)/se
-            p_valor = 2*(1 - norm.cdf(abs(z)))
+        # Check if the fitted model object exists
+        if not hasattr(self, 'resultados_train') or self.resultados_train is None:
+             raise ValueError("Debes ajustar el modelo primero con train=True")
 
-            ic_inf = p_obs - norm.ppf(1-alpha/2)*se
-            ic_sup = p_obs + norm.ppf(1-alpha/2)*se
 
-            resultados.update({
-                'metodo': 'aproximacion_normal',
-                'estadistico': z,
-                'p_valor': p_valor,
-                'ic_inferior': ic_inf,
-                'ic_superior': ic_sup
-            })
+        # Probabilidades predichas en los datos de prueba
+        # Pass X_test directly to predecirTrain
+        probas = self.predecirTrain(self.X_test, probabilidades=True)
 
-        elif metodo == 'bootstrap':
-            # Método bootstrap
-            B = 5000
-            p_boot = []
-            for _ in range(B):
-                muestra = np.random.choice(self.datos, size=self.n, replace=True)
-                p_boot.append(np.sum(muestra == categoria)/self.n)
+        # Ensure y_test is a 1D array or Series for roc_curve
+        y_true = self.y_test.values if isinstance(self.y_test, pd.Series) else self.y_test
 
-            se_boot = np.std(p_boot)
-            ic_inf = np.percentile(p_boot, 100*alpha/2)
-            ic_sup = np.percentile(p_boot, 100*(1-alpha/2))
+        # Calcular la curva ROC
+        fpr, tpr, thresholds = roc_curve(y_true, probas)
 
-            resultados.update({
-                'metodo': 'bootstrap',
-                'se_bootstrap': se_boot,
-                'ic_inferior': ic_inf,
-                'ic_superior': ic_sup
-            })
-
-        return resultados
-
-    def prueba_bondad_ajuste(self, esperados=None, alpha=0.05):
-        """
-        Realiza prueba χ² de bondad de ajuste.
-
-        Args:
-            esperados: Valores esperados (si None, asume distribución uniforme)
-            alpha: Nivel de significancia
-
-        Returns:
-            Diccionario con resultados de la prueba
-        """
-        if esperados is None:
-            esperados = [self.n/len(self.categorias)] * len(self.categorias)
-        elif isinstance(esperados, (list, np.ndarray)):
-            esperados = np.array(esperados) * self.n
-
-        observados = np.array([self.conteos.get(c, 0) for c in self.categorias])
-
-        # Calcular estadístico χ²
-        chi2_obs = np.sum((observados - esperados)**2 / esperados)
-        df = len(self.categorias) - 1
-        p_valor = 1 - chi2.cdf(chi2_obs, df)
-        chi2_critico = chi2.ppf(1 - alpha, df)
+        # Calcular el AUC
+        roc_auc = auc(fpr, tpr)
 
         return {
-            'estadistico': chi2_obs,
-            'grados_libertad': df,
-            'p_valor': p_valor,
-            'valor_critico': chi2_critico,
-            'rechazar_H0': p_valor < alpha,
-            'observados': observados,
-            'esperados': esperados
+            'fpr': fpr,
+            'tpr': tpr,
+            'auc': roc_auc,
+            'thresholds': thresholds
         }
 
-    def graficar_conteos(self):
-        """Grafica conteos observados vs esperados."""
-        res = self.prueba_bondad_ajuste()
-        fig, ax = plt.subplots(figsize=(10, 5))
 
-        x = np.arange(len(self.categorias))
-        ancho = 0.35
+    def graficar_curva_roc(self):
+        """Grafica la curva ROC."""
+        roc_data = self.curva_roc()
 
-        ax.bar(x - ancho/2, res['observados'], ancho, label='Observados')
-        ax.bar(x + ancho/2, res['esperados'], ancho, label='Esperados')
-
-        ax.set_xticks(x)
-        ax.set_xticklabels(self.categorias)
-        ax.set_ylabel('Frecuencia')
-        ax.set_title('Conteos Observados vs Esperados')
-        ax.legend()
-
+        plt.figure()
+        plt.plot(roc_data['fpr'], roc_data['tpr'], color='darkorange', lw=2, label=f'Curva ROC (AUC = {roc_data["auc"]:.2f})')
+        plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('Tasa de Falsos Positivos (FPR)')
+        plt.ylabel('Tasa de Verdaderos Positivos (TPR)')
+        plt.title('Curva Característica Operativa del Receptor (ROC)')
+        plt.legend(loc="lower right")
+        plt.grid(True)
         plt.show()
-        return fig
+
+
+    def encontrar_mejor_umbral(self, metricas='youden', pasos=100):
+        """
+        Encuentra el umbral óptimo basado en diferentes métricas.
+
+        Args:
+            metricas (str): 'f1', 'exactitud', 'sensibilidad', 'especificidad' o 'youden'
+            pasos (int): Número de pasos para evaluar entre 0 y 1
+
+        Returns:
+            float: Mejor umbral encontrado
+        """
+        if self.df_test is None: # Changed _df_test to df_test
+            raise ValueError("Se requieren datos de prueba. Use dividir_datos_train_test() primero.")
+
+        if self.resultados_train is None:
+            self.ajustar_modelo(True)
+
+        # Check if the fitted model object exists
+        if not hasattr(self, 'resultados_train') or self.resultados_train is None:
+             raise ValueError("Debes ajustar el modelo primero con train=True")
+
+        # Probabilidades predichas
+        # Pass X_test directly to predecirTrain
+        probas = self.predecirTrain(self.X_test, probabilidades=True)
+
+        # Evaluar diferentes umbrales
+        mejor_valor_metrica = -1 # Use -1 as initial value for finding max
+        mejor_umbral = 0.5
+
+        # Use the values of y_test as numpy array for easier comparison
+        y_true_vals = self.y_test.values
+
+        for umbral in np.linspace(0, 1, pasos):
+            y_pred = (probas > umbral).astype(int)
+
+            vp = np.sum((y_pred == 1) & (y_true_vals == 1))
+            fp = np.sum((y_pred == 1) & (y_true_vals == 0))
+            fn = np.sum((y_pred == 0) & (y_true_vals == 1))
+            vn = np.sum((y_pred == 0) & (y_true_vals == 0))
+
+            sensibilidad = vp / (vp + fn) if (vp + fn) > 0 else 0
+            especificidad = vn / (vn + fp) if (vn + fp) > 0 else 0
+            exactitud = (vp + vn) / (vp + fp + fn + vn) if (vp + fp + fn + vn) > 0 else 0
+            precision = vp / (vp + fp) if (vp + fp) > 0 else 0 # Calculate precision for F1 score
+            f1 = 2 * (precision * sensibilidad) / (precision + sensibilidad) if (precision + sensibilidad) > 0 else 0
+
+            # Select metric based on input string
+            if metricas == 'f1':
+                valor_metrica = f1
+            elif metricas == 'exactitud':
+                valor_metrica = exactitud
+            elif metricas == 'sensibilidad':
+                valor_metrica = sensibilidad
+            elif metricas == 'especificidad':
+                valor_metrica = especificidad
+            elif metricas == 'youden':
+                valor_metrica = sensibilidad + especificidad - 1
+            else:
+                raise ValueError("Métrica no soportada. Use 'f1', 'exactitud', 'sensibilidad', 'especificidad' o 'youden'.")
+
+            # Update best threshold if current metric value is better
+            if valor_metrica > mejor_valor_metrica:
+                 mejor_valor_metrica = valor_metrica
+                 mejor_umbral = umbral
+
+
+        return mejor_umbral
+    def graficar_metricas_vs_umbral(self, pasos=100, figsize=(10, 6)):
+        """
+        Grafica sensibilidad y especificidad en función del umbral de decisión.
+
+        Args:
+            pasos (int): Número de puntos a evaluar entre 0 y 1
+            figsize (tuple): Tamaño de la figura
+        """
+        umbrales = np.linspace(0, 1, pasos)
+        sensibilidades = []
+        especificidades = []
+
+        # Guardar el umbral original para restaurarlo después
+        umbral_original = self.umbral
+
+        for p in umbrales:
+            self.umbral = p
+            eval_p = self.evaluar_modelo()
+            metricas = eval_p['metricas']
+            sensibilidades.append(metricas['sensibilidad'])
+            especificidades.append(metricas['especificidad'])
+
+        # Restaurar el umbral original
+        self.umbral = umbral_original
+
+        # Obtener el mejor umbral según Youden
+        mejor_umbral = self.encontrar_mejor_umbral(metricas='youden')
+        idx_optimo = np.argmin(np.abs(umbrales - mejor_umbral))
+
+        # Crear el gráfico
+        plt.figure(figsize=figsize)
+        plt.plot(umbrales, sensibilidades, label='Sensibilidad (TPR)', linewidth=2)
+        plt.plot(umbrales, especificidades, label='Especificidad (TNR)', linewidth=2)
+
+        # Marcar el mejor umbral
+        plt.axvline(x=mejor_umbral, color='red', linestyle='--',
+                    label=f'Umbral óptimo: {mejor_umbral:.2f}')
+
+        # Configuración del gráfico
+        plt.title('Sensibilidad y Especificidad vs Umbral de Decisión', fontsize=14)
+        plt.xlabel('Umbral de Probabilidad', fontsize=12)
+        plt.ylabel('Valor de la Métrica', fontsize=12)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+
+        # Mostrar el punto óptimo
+        plt.scatter(umbrales[idx_optimo], sensibilidades[idx_optimo], color='red', s=100)
+        plt.scatter(umbrales[idx_optimo], especificidades[idx_optimo], color='red', s=100)
+
+        # Añadir anotación
+        plt.annotate(f'Sens: {sensibilidades[idx_optimo]:.2f}\nEspec: {especificidades[idx_optimo]:.2f}',
+                     xy=(mejor_umbral, (sensibilidades[idx_optimo] + especificidades[idx_optimo])/2),
+                     xytext=(10, 10), textcoords='offset points',
+                     bbox=dict(boxstyle='round,pad=0.5', fc='yellow', alpha=0.5),
+                     arrowprops=dict(arrowstyle='->'))
+
+        plt.tight_layout()
+        plt.show()
