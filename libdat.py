@@ -399,6 +399,9 @@ class QQPlot:
         plt.grid()
         plt.show()
 
+##
+################################################
+##
 
 def cargar_csv_desde_drive(ruta_drive, separador=',', mostrar_info=True):
     """
@@ -516,6 +519,9 @@ class prepararDataframe:
         """Devuelve el DataFrame preparado."""
         return self.df_preparado
 
+##
+################################################
+##
 
 class Regresion:
     """
@@ -609,10 +615,6 @@ class Regresion:
         if nombre_interaccion not in self.variables_predictoras:
             self.df[nombre_interaccion] = self.df[var1] * self.df[var2]
             self.variables_predictoras.append(nombre_interaccion)
-
-##
-################################################
-##
 
 class RegresionLineal(Regresion):
     """
@@ -1293,3 +1295,162 @@ class RegresionLogistica(Regresion):
 
         plt.tight_layout()
         plt.show()
+
+class AnalizadorCategoricos:
+    def __init__(self, datos, categorias=None, esperados=None, distribucion_teorica=None):
+        """
+        Inicializa el analizador con datos categóricos.
+
+        Args:
+            datos: Lista/array de observaciones categóricas
+            categorias: Lista de categorías únicas (si None, se infieren)
+            esperados: Valores esperados para bondad de ajuste (opcional)
+            distribucion_teorica: Probabilidades teóricas para cada categoría (opcional)
+        """
+        self.datos = np.array(datos)
+        self.categorias = categorias if categorias is not None else np.unique(self.datos)
+        self.conteos = Counter(self.datos)
+        self.n = len(self.datos)
+        self.esperados = esperados
+        self.distribucion_teorica = distribucion_teorica
+
+        # Ordenar categorías y conteos según el orden de las categorías proporcionadas
+        if categorias is not None:
+            self.observados = np.array([self.conteos.get(c, 0) for c in self.categorias])
+        else:
+            self.observados = np.array([self.conteos[c] for c in self.categorias])
+
+    def resumen_conteos(self):
+        """Devuelve un DataFrame con conteos observados y proporciones."""
+        df = pd.DataFrame({
+            'Categoria': self.categorias,
+            'Conteo': self.observados,
+            'Proporcion': self.observados/self.n
+        })
+        return df
+
+    def probar_proporcion(self, categoria, valor_esperado=None, alpha=0.05, metodo='normal'):
+        """
+        Prueba si la proporción de una categoría difiere de un valor esperado.
+
+        Argumentos:
+            categoria: Categoría a analizar
+            valor_esperado: Valor esperado bajo H0 (si None, usa 1/k)
+            alpha: Nivel de significancia
+            metodo: 'normal' para aproximación normal, 'bootstrap' para bootstrap
+
+        Retorna:
+            Diccionario con resultados de la prueba
+        """
+        if valor_esperado is None:
+            valor_esperado = 1/len(self.categorias)
+
+        p_obs = self.conteos.get(categoria, 0)/self.n
+        resultados = {
+            'categoria': categoria,
+            'p_observada': p_obs,
+            'p_esperada': valor_esperado,
+            'alpha': alpha
+        }
+
+        if metodo == 'normal':
+            # Aproximación normal
+            se = np.sqrt(valor_esperado*(1-valor_esperado)/self.n)
+            z = (p_obs - valor_esperado)/se
+            p_valor = 2*(1 - norm.cdf(abs(z)))
+
+            ic_inf = p_obs - norm.ppf(1-alpha/2)*se
+            ic_sup = p_obs + norm.ppf(1-alpha/2)*se
+
+            resultados.update({
+                'metodo': 'aproximacion_normal',
+                'estadistico': z,
+                'p_valor': p_valor,
+                'ic_inferior': ic_inf,
+                'ic_superior': ic_sup
+            })
+
+        elif metodo == 'bootstrap':
+            # Método bootstrap
+            B = 5000
+            p_boot = []
+            for _ in range(B):
+                muestra = np.random.choice(self.datos, size=self.n, replace=True)
+                p_boot.append(np.sum(muestra == categoria)/self.n)
+
+            se_boot = np.std(p_boot)
+            ic_inf = np.percentile(p_boot, 100*alpha/2)
+            ic_sup = np.percentile(p_boot, 100*(1-alpha/2))
+
+            resultados.update({
+                'metodo': 'bootstrap',
+                'se_bootstrap': se_boot,
+                'ic_inferior': ic_inf,
+                'ic_superior': ic_sup
+            })
+
+        return resultados
+
+    def prueba_bondad_ajuste(self, esperados=None, distribucion_teorica=None, alpha=0.05):
+        """
+        Realiza prueba χ² de bondad de ajuste.
+
+        Args:
+            esperados: Valores esperados (si None, calcula según distribución teórica o uniforme)
+            distribucion_teorica: Probabilidades teóricas para cada categoría (opcional)
+            alpha: Nivel de significancia
+
+        Returns:
+            Diccionario con resultados de la prueba
+        """
+        # Determinar los valores esperados
+        if esperados is not None:
+            self.esperados = np.array(esperados)
+        elif distribucion_teorica is not None or self.distribucion_teorica is not None:
+            # Usar distribución teórica si se proporciona
+            prob_teoricas = distribucion_teorica if distribucion_teorica is not None else self.distribucion_teorica
+            self.esperados = np.array(prob_teoricas) * self.n
+        else:
+            # Distribución uniforme por defecto
+            self.esperados = np.array([self.n/len(self.categorias)] * len(self.categorias))
+
+        # Asegurarse de que los conteos observados y esperados estén alineados con las categorías
+        observados = self.observados
+
+        # Calcular estadístico χ²
+        chi2_obs = np.sum((observados - self.esperados)**2 / self.esperados)
+        df = len(self.categorias) - 1
+        p_valor = 1 - chi2.cdf(chi2_obs, df)
+        chi2_critico = chi2.ppf(1 - alpha, df)
+
+        return {
+            'estadistico': chi2_obs,
+            'grados_libertad': df,
+            'p_valor': p_valor,
+            'valor_critico': chi2_critico,
+            'rechazar_H0': p_valor < alpha,
+            'observados': observados,
+            'esperados': self.esperados
+        }
+
+    def graficar_conteos(self):
+        """Grafica conteos observados vs esperados."""
+        if not hasattr(self, 'esperados'):
+            self.prueba_bondad_ajuste()
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+
+        x = np.arange(len(self.categorias))
+        ancho = 0.35
+
+        ax.bar(x - ancho/2, self.observados, ancho, label='Observados')
+        ax.bar(x + ancho/2, self.esperados, ancho, label='Esperados')
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(self.categorias)
+        ax.set_ylabel('Frecuencia')
+        ax.set_title('Conteos Observados vs Esperados')
+        ax.legend()
+
+        plt.show()
+        return fig
