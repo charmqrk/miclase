@@ -88,9 +88,21 @@ organizadas en clases especializadas para diferentes tareas de análisis de dato
 - Generación de variables dummy y manejo de categorías
 
 ## Instalación
+`````cmd
+pip install libdat
+`````
+`````python
+#O en su defecto, cargar la librería desde el sistema o drive
 
-pip install numpy pandas matplotlib scipy statsmodels scikit-learn seaborn
+import sys
+from google.colab import drive
 
+drive.mount('/content/drive')
+
+sys.path.append(('/content/drive/MyDrive/mismodulos')
+
+import libdat
+`````
 ## Ejemplos de uso
 ### Análisis Descriptivo Básico
 `````python
