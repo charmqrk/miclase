@@ -1248,7 +1248,7 @@ class RegresionLogistica(Regresion):
     def graficar_metricas_vs_umbral(self, pasos=100, figsize=(10, 6)):
         """
         Grafica sensibilidad y especificidad en función del umbral de decisión.
-        
+
         Parámetros:
             pasos (int): Número de puntos a evaluar entre 0 y 1
             figsize (tuple): Tamaño de la figura
@@ -1257,16 +1257,16 @@ class RegresionLogistica(Regresion):
         sensibilidades = []
         especificidades = []
 
-        umbral_original = self.umbral
+        umbral_original = self._umbral 
 
         for p in umbrales:
-            self.umbral = p
+            self._umbral = p
             eval_p = self.evaluar_modelo()
             metricas = eval_p['metricas']
             sensibilidades.append(metricas['sensibilidad'])
             especificidades.append(metricas['especificidad'])
 
-        self.umbral = umbral_original
+        self._umbral = umbral_original
 
         mejor_umbral = self.encontrar_mejor_umbral(metricas='youden')
         idx_optimo = np.argmin(np.abs(umbrales - mejor_umbral))
@@ -1295,7 +1295,7 @@ class RegresionLogistica(Regresion):
 
         plt.tight_layout()
         plt.show()
-
+        
 class AnalizadorCategoricos:
     def __init__(self, datos, categorias=None, esperados=None, distribucion_teorica=None):
         """
